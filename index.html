@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACCESS://TERMINAL</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  :root {
+    --bg: #0a0e0a;
+    --bg-soft: #0d120d;
+    --green: #00ff41;
+    --green-dim: #00b32e;
+    --green-faint: #1a3a1a;
+    --text: #b8c4b8;
+    --red: #ff3b3b;
+    --amber: #ffb000;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 14px;
+    overflow: hidden;
+    line-height: 1.6;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 65, 0.03) 0px,
+      rgba(0, 255, 65, 0.03) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  /* Vignette */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent 60%,
+      rgba(0, 0, 0, 0.6) 100%
+    );
+    pointer-events: none;
+    z-index: 99;
+  }
+
+  /* Matrix canvas background */
+  #matrix {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0.06;
+    z-index: 0;
+  }
+
+  /* Terminal container */
+  .terminal {
+    position: relative;
+    z-index: 10;
+    height: 100vh;
+    padding: 32px 40px;
+    display: flex;
+    flex-direction: column;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* Header bar */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--green-faint);
+    margin-bottom: 24px;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .header-left span { color: var(--green); }
+
+  .header-right {
+    color: var(--green-dim);
+    display: flex;
+    gap: 20px;
+  }
+
+  .header-right span::before {
+    content: '[';
+    color: var(--green-faint);
+    margin-right: 4px;
+  }
+
+  .header-right span::after {
+    content: ']';
+    color: var(--green-faint);
+    margin-left: 4px;
+  }
+
+  /* Main content */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ASCII logo */
+  .logo {
+    color: var(--green);
+    font-size: 10px;
+    line-height: 1.1;
+    white-space: pre;
+    margin-bottom: 28px;
+    text-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+    animation: fadeIn 1s ease-in;
+  }
+
+  @media (max-width: 700px) {
+    .logo { font-size: 6px; }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Boot sequence */
+  .boot {
+    color: var(--text);
+    font-size: 13px;
+    margin-bottom: 20px;
+    min-height: 180px;
+  }
+
+  .boot-line {
+    opacity: 0;
+    animation: typeIn 0.3s forwards;
+  }
+
+  .boot-line.ok::after { content: ' [OK]'; color: var(--green); }
+  .boot-line.warn::after { content: ' [WARN]'; color: var(--amber); }
+  .boot-line.info::after { content: ' [INFO]'; color: var(--green-dim); }
+
+  @keyframes typeIn {
+    from { opacity: 0; transform: translateX(-4px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .boot-line:nth-child(1) { animation-delay: 0.2s; }
+  .boot-line:nth-child(2) { animation-delay: 0.5s; }
+  .boot-line:nth-child(3) { animation-delay: 0.8s; }
+  .boot-line:nth-child(4) { animation-delay: 1.1s; }
+  .boot-line:nth-child(5) { animation-delay: 1.4s; }
+  .boot-line:nth-child(6) { animation-delay: 1.7s; }
+  .boot-line:nth-child(7) { animation-delay: 2.0s; }
+  .boot-line:nth-child(8) { animation-delay: 2.3s; }
+
+  /* Command line */
+  .cmdline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    border-top: 1px solid var(--green-faint);
+    margin-top: auto;
+    font-size: 14px;
+  }
+
+  .prompt {
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.5);
+  }
+
+  .prompt::before {
+    content: 'root@null:~# ';
+    color: var(--green-dim);
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 9px;
+    height: 16px;
+    background: var(--green);
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+    box-shadow: 0 0 8px var(--green);
+  }
+
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+  }
+
+  /* Glitch text */
+  .glitch {
+    position: relative;
+    color: var(--green);
+    display: inline-block;
+  }
+
+  .glitch::before,
+  .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .glitch::before {
+    color: var(--red);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: polygon(0 0, 100% 0, 100% 35%, 0 35%);
+  }
+
+  .glitch::after {
+    color: #00ffff;
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: polygon(0 65%, 100% 65%, 100% 100%, 0 100%);
+  }
+
+  @keyframes glitch-1 {
+    0%, 90%, 100% { transform: translate(0); }
+    92% { transform: translate(-2px, 1px); }
+    94% { transform: translate(2px, -1px); }
+    96% { transform: translate(-1px, 2px); }
+  }
+
+  @keyframes glitch-2 {
+    0%, 88%, 100% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-2px, 1px); }
+    96% { transform: translate(1px, -2px); }
+  }
+
+  /* Status bar bottom */
+  .statusbar {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 12px;
+    margin-top: 12px;
+    border-top: 1px solid var(--green-faint);
+    font-size: 11px;
+    color: var(--green-dim);
+    letter-spacing: 0.5px;
+  }
+
+  .statusbar .live {
+    color: var(--green);
+  }
+
+  .statusbar .live::before {
+    content: '● ';
+    animation: pulse 1.5s infinite;
+  }
+
+  /* Selection */
+  ::selection {
+    background: var(--green);
+    color: var(--bg);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--green-faint);
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="matrix"></canvas>
+
+<div class="terminal">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <div class="dot"></div>
+      <span>secure_shell_v2.7</span>
+    </div>
+    <div class="header-right">
+      <span>encrypted</span>
+      <span id="clock">00:00:00</span>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- ASCII logo -->
+    <div class="logo">
+ ██████╗ ██████╗ ███████╗███████╗██╗   ██╗██████╗ ███████╗
+██╔════╝ ██╔══██╗██╔════╝██╔════╝██║   ██║██╔══██╗██╔════╝
+██║  ███╗██████╔╝█████╗  ███████╗██║   ██║██████╔╝█████╗  
+██║   ██║██╔══██╗██╔══╝  ╚════██║██║   ██║██╔══██╗██╔══╝  
+╚██████╔╝██║  ██║███████╗███████║╚██████╔╝██║  ██║███████╗
+ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+    </div>
+
+    <!-- Boot sequence -->
+    <div class="boot" id="boot">
+      <div class="boot-line">initializing kernel modules</div>
+      <div class="boot-line ok">loading cryptographic layer</div>
+      <div class="boot-line info">establishing secure tunnel to 10.66.66.1</div>
+      <div class="boot-line warn">anomaly detected on node 0x4F2A — tracing</div>
+      <div class="boot-line ok">handshake complete · AES-256-GCM</div>
+      <div class="boot-line info">routing through <span class="glitch" data-text="cdg-eu-west">cdg-eu-west</span></div>
+      <div class="boot-line ok">integrity verified · hash 0x7f3a9c1e</div>
+      <div class="boot-line ok">access <span style="color: var(--green);">granted</span> — welcome back</div>
+    </div>
+
+    <!-- Command line -->
+    <div class="cmdline">
+      <span class="prompt"></span>
+      <span id="typed"></span>
+      <span class="cursor"></span>
+    </div>
+  </div>
+
+  <!-- Status bar -->
+  <div class="statusbar">
+    <span class="live">connected</span>
+    <span>latency <span id="latency">12</span>ms</span>
+    <span>pkts <span id="pkts">0</span></span>
+    <span>uptime <span id="uptime">00:00</span></span>
+  </div>
+</div>
+
+<script>
+/* ═══════════════ MATRIX RAIN ═══════════════ */
+(function() {
+  const canvas = document.getElementById('matrix');
+  const ctx = canvas.getContext('2d');
+
+  let w, h, cols, drops;
+  const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEFｱｲｳｴｵ'.split('');
+  const fontSize = 14;
+
+  function init() {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    cols = Math.floor(w / fontSize);
+    drops = Array(cols).fill(1);
+  }
+
+  function draw() {
+    ctx.fillStyle = 'rgba(10, 14, 10, 0.05)';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#00ff41';
+    ctx.font = fontSize + 'px monospace';
+
+    for (let i = 0; i < drops.length; i++) {
+      const text = chars[Math.floor(Math.random() * chars.length)];
+      ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+
+      if (drops[i] * fontSize > h && Math.random() > 0.975) {
+        drops[i] = 0;
+      }
+      drops[i]++;
+    }
+  }
+
+  init();
+  window.addEventListener('resize', init);
+  setInterval(draw, 50);
+})();
+
+/* ═══════════════ CLOCK ═══════════════ */
+(function() {
+  const el = document.getElementById('clock');
+  setInterval(() => {
+    const d = new Date();
+    el.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()]
+      .map(n => String(n).padStart(2, '0')).join(':');
+  }, 1000);
+})();
+
+/* ═══════════════ LATENCY & PKTS ═══════════════ */
+(function() {
+  const lat = document.getElementById('latency');
+  const pkts = document.getElementById('pkts');
+  let p = 0;
+  setInterval(() => {
+    lat.textContent = Math.floor(8 + Math.random() * 20);
+    p += Math.floor(Math.random() * 40 + 10);
+    pkts.textContent = p.toLocaleString();
+  }, 1200);
+})();
+
+/* ═══════════════ UPTIME ═══════════════ */
+(function() {
+  const el = document.getElementById('uptime');
+  const start = Date.now();
+  setInterval(() => {
+    const s = Math.floor((Date.now() - start) / 1000);
+    const m = Math.floor(s / 60);
+    el.textContent = String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }, 1000);
+})();
+
+/* ═══════════════ TYPED COMMAND ═══════════════ */
+(function() {
+  const el = document.getElementById('typed');
+  const lines = [
+    'ssh root@null — bypassing firewall...',
+    'tracing route through 7 hops...',
+    'aes-256-gcm handshake complete',
+    'access granted · welcome, baby.',
+  ];
+  let li = 0, ci = 0;
+
+  function type() {
+    if (li >= lines.length) return;
+    const line = lines[li];
+    if (ci < line.length) {
+      el.textContent += line[ci++];
+      setTimeout(type, 40 + Math.random() * 40);
+    } else {
+      setTimeout(() => {
+        el.textContent = '';
+        ci = 0;
+        li = (li + 1) % lines.length;
+        type();
+      }, 2200);
+    }
+  }
+  setTimeout(type, 2600);
+})();
+
+/* ═══════════════ KONAMI GLITCH ═══════════════ */
+(function() {
+  const seq = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+  let idx = 0;
+  document.addEventListener('keydown', e => {
+    if (e.key === seq[idx] || e.key.toLowerCase() === seq[idx]) {
+      idx++;
+      if (idx === seq.length) {
+        document.body.style.filter = 'invert(1) hue-rotate(90deg)';
+        setTimeout(() => document.body.style.filter = '', 500);
+        idx = 0;
+      }
+    } else {
+      idx = 0;
+    }
+  });
+})();
+</script>
+</body>
+</html>
